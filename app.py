@@ -1,58 +1,80 @@
-from flask import Flask, render_template, request, redirect, url_for
-from pathlib import Path
+import os
 from datetime import date
-import csv
-import socket
+from flask import Flask, render_template, request, redirect, url_for
+from sqlalchemy import create_engine, text
 
 app = Flask(__name__)
-BASE = Path(__file__).resolve().parent
-DATA = BASE / "data" / "nippo.csv"
 
-def local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    except Exception:
-        return "127.0.0.1"
-    finally:
-        s.close()
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-@app.route("/", methods=["GET"])
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set. Add the Render PostgreSQL Internal Database URL as DATABASE_URL.")
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
+def init_db():
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS reports (
+                id BIGSERIAL PRIMARY KEY,
+                work_date DATE NOT NULL,
+                weather VARCHAR(20),
+                company VARCHAR(200),
+                work_content TEXT,
+                people INTEGER,
+                note TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+
+init_db()
+
+@app.get("/")
 def index():
     return render_template("index.html", today=date.today().isoformat())
 
-@app.route("/submit", methods=["POST"])
+@app.post("/submit")
 def submit():
-    DATA.parent.mkdir(exist_ok=True)
-    new_file = not DATA.exists()
-    row = [
-        request.form.get("work_date", ""),
-        request.form.get("weather", ""),
-        request.form.get("company", ""),
-        request.form.get("work", ""),
-        request.form.get("people", ""),
-        request.form.get("note", ""),
-    ]
-    with DATA.open("a", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f)
-        if new_file:
-            w.writerow(["日付", "天気", "業者名", "作業内容", "人数", "備考"])
-        w.writerow(row)
+    people_raw = request.form.get("people", "").strip()
+    people = int(people_raw) if people_raw else None
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO reports
+            (work_date, weather, company, work_content, people, note)
+            VALUES
+            (:work_date, :weather, :company, :work_content, :people, :note)
+        """), {
+            "work_date": request.form.get("work_date"),
+            "weather": request.form.get("weather", ""),
+            "company": request.form.get("company", ""),
+            "work_content": request.form.get("work", ""),
+            "people": people,
+            "note": request.form.get("note", "")
+        })
     return redirect(url_for("done"))
 
-@app.route("/done")
+@app.get("/done")
 def done():
     return render_template("done.html")
 
+@app.get("/reports")
+def reports():
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT id, work_date, weather, company, work_content, people, note, created_at
+            FROM reports
+            ORDER BY work_date DESC, id DESC
+            LIMIT 500
+        """)).mappings().all()
+    return render_template("reports.html", reports=rows)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 if __name__ == "__main__":
-    ip = local_ip()
-    print()
-    print("==============================================")
-    print(" Construction Daily Report Test")
-    print("==============================================")
-    print(" PC   : http://127.0.0.1:8000")
-    print(f" iPad : http://{ip}:8000")
-    print("==============================================")
-    print()
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    port = int(os.environ.get("PORT", "8000"))
+    app.run(host="0.0.0.0", port=port, debug=False)

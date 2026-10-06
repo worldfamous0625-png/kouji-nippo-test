@@ -1,13 +1,15 @@
-﻿工事日報 Web テスト版 - Render用
+﻿工事日報 v2 - PostgreSQL版
 
-GitHubへアップロードするもの:
-- app.py
-- requirements.txt
-- Procfile
-- templates フォルダ
-- data フォルダ（空でも可）
+追加機能:
+・送信済み日報一覧 /reports
+・Render PostgreSQLへ永続保存
+・再デプロイでCSVが消える問題を回避
 
-Render設定:
+Render側で必要な設定:
+1. PostgreSQLデータベースを作成
+2. Web Serviceの Environment に DATABASE_URL を追加
+3. 値にはPostgreSQLの Internal Database URLを設定
+
 Build Command:
 pip install -r requirements.txt
 
@@ -15,7 +17,5 @@ Start Command:
 gunicorn app:app --bind 0.0.0.0:$PORT
 
 注意:
-この版のCSV保存はRenderのローカルファイルです。
-Renderの再デプロイ・再起動などでデータが消える可能性があるため、
-本番データの保存には使用しないでください。
-まずはiPad -> Web -> 会社PCで画面が見えることを確認するテスト用です。
+DATABASE_URL設定前にこの版をデプロイすると、意図的に起動エラーになります。
+先にDBを作ってDATABASE_URLを設定してください。
