@@ -12,7 +12,7 @@ if DATABASE_URL.startswith("postgres://"):
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. Add the Render PostgreSQL Internal Database URL as DATABASE_URL.")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1), pool_pre_ping=True)
 
 def init_db():
     with engine.begin() as conn:
